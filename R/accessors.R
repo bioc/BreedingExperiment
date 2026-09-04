@@ -1,7 +1,3 @@
-## Assisted-by: Claude (Anthropic). Written with AI assistance under the
-## author's direction; methods are established techniques cited in the
-## documentation, and the results are validated in tests/testthat.
-
 #' Pedigree of a breeding experiment
 #'
 #' Gets or sets the pedigree, a table with columns `id`, `sire` and `dam`. The

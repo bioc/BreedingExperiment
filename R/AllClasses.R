@@ -1,7 +1,3 @@
-## Assisted-by: Claude (Anthropic). Written with AI assistance under the
-## author's direction; methods are established techniques cited in the
-## documentation, and the results are validated in tests/testthat.
-
 #' @importFrom methods setClass setGeneric setMethod setValidity new is
 #'   validObject callNextMethod slot slotNames show as
 #' @importClassesFrom SummarizedExperiment RangedSummarizedExperiment
