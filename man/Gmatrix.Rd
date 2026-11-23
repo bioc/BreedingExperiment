@@ -17,7 +17,8 @@ Gmatrix(x, ...)
 \item{min_maf}{Markers with a minor allele frequency below this are dropped.}
 
 \item{impute}{Replace missing dosages by twice the allele frequency before
-computing. If \code{FALSE}, missing values raise an error.}
+computing, which gives a missing call no weight in the result. If \code{FALSE},
+missing values raise an error.}
 }
 \value{
 A symmetric numeric matrix over the genotyped individuals.

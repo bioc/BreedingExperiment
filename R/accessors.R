@@ -84,24 +84,57 @@ setMethod("genotyped", "BreedingExperiment", function(x, ...) colnames(x))
 #' Computes, for every marker, the frequency of the counted allele, the minor
 #' allele frequency, the call rate and the observed heterozygosity.
 #'
+#' `freq` and `maf` use every dosage that is present, so an expected dosage
+#' from imputation contributes to them on the same footing as a call.
+#' `callRate` is the proportion of dosages that are not `NA`; after
+#' [imputeMarkers()] that is 1 for every marker, so take call rates before
+#' imputing if you need them.
+#'
+#' `heterozygosity` is different, because a heterozygote is a genotype rather
+#' than a quantity. A cell counts towards it only if it is a genotype call:
+#' its dosage must be a whole number, and it must not be marked in the
+#' `imputed` assay that [imputeMarkers()] writes. Everything else is left out
+#' of both the numerator and the denominator. Without those two checks an
+#' imputed cell would be counted as a non-heterozygote and heterozygosity
+#' would appear to fall every time a data set was imputed. A marker with no
+#' genotype call at all gets `NA`.
+#'
+#' Dosages imputed by other software arrive without the `imputed` assay, so
+#' only the whole-number check applies to them; pass such dosages in as
+#' fractional values, or carry your own mask as an extra assay, if observed
+#' heterozygosity matters to you.
+#'
 #' @param x A [BreedingExperiment-class] object.
+#' @param tol How far a dosage may sit from a whole number and still count as
+#'   a genotype call when `heterozygosity` is computed.
 #' @param ... Unused.
 #' @return A [S4Vectors::DataFrame] with one row per marker and columns `freq`,
 #'   `maf`, `callRate` and `heterozygosity`.
+#' @seealso [filterMarkers()], [imputeMarkers()]
 #' @examples
 #' set.seed(1)
 #' be <- simulateBreeding(n_ind = 30, n_marker = 50)
 #' head(alleleFrequency(be))
+#'
+#' # imputation does not change the observed heterozygosity of a marker,
+#' # because imputed cells are not counted as genotype calls
+#' bem <- simulateBreeding(n_ind = 30, n_marker = 50, missing = 0.2)
+#' all.equal(alleleFrequency(bem)$heterozygosity,
+#'           alleleFrequency(imputeMarkers(bem))$heterozygosity)
 #' @name alleleFrequency
 #' @aliases alleleFrequency alleleFrequency,BreedingExperiment-method
 #' @export
-setMethod("alleleFrequency", "BreedingExperiment", function(x, ...) {
+setMethod("alleleFrequency", "BreedingExperiment",
+          function(x, tol = 1e-8, ...) {
     g <- genotypes(x)
     p <- rowMeans(g, na.rm = TRUE) / 2
+    called <- !is.na(g) & abs(g - round(g)) <= tol & !.imputed_mask(x)
+    n_called <- rowSums(called)
+    het <- rowSums(called & abs(g - 1) <= tol)
     S4Vectors::DataFrame(
         freq = p,
         maf = pmin(p, 1 - p),
         callRate = rowMeans(!is.na(g)),
-        heterozygosity = rowMeans(g == 1, na.rm = TRUE),
+        heterozygosity = ifelse(n_called > 0L, het / n_called, NA_real_),
         row.names = rownames(g))
 })

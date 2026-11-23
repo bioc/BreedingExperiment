@@ -14,7 +14,8 @@
 #' @param x A [BreedingExperiment-class] object.
 #' @param min_maf Markers with a minor allele frequency below this are dropped.
 #' @param impute Replace missing dosages by twice the allele frequency before
-#'   computing. If `FALSE`, missing values raise an error.
+#'   computing, which gives a missing call no weight in the result. If `FALSE`,
+#'   missing values raise an error.
 #' @param ... Unused.
 #' @return A symmetric numeric matrix over the genotyped individuals.
 #' @references VanRaden, P. M. (2008) "Efficient methods to compute genomic
@@ -51,7 +52,21 @@ setMethod("Gmatrix", "BreedingExperiment",
 #' that is not, which matters for crossbreeding and for predicting the
 #' performance of specific crosses.
 #'
+#' @section Dosages that are not whole numbers:
+#' Vitezica and others code the genotypes AA, Aa and aa as \eqn{-2q^2},
+#' \eqn{2pq} and \eqn{-2p^2}. Those three values lie on a single quadratic in
+#' the dosage \eqn{g},
+#' \deqn{-g^2 + (2p + 1)g - 2p^2,}
+#' which is what this function evaluates. At dosages 2, 1 and 0 it returns the
+#' three published values exactly, and an expected dosage from imputation
+#' falls between them rather than being forced into one genotype class.
+#'
+#' A missing call is given a dominance contribution of zero, which is the
+#' weight that mean imputation already gives it in [Gmatrix()].
+#'
 #' @inheritParams Gmatrix
+#' @param impute Allow missing dosages, giving them a dominance contribution
+#'   of zero. If `FALSE`, missing values raise an error.
 #' @return A symmetric numeric matrix over the genotyped individuals.
 #' @references Vitezica, Z. G., Varona, L. & Legarra, A. (2013) "On the
 #'   additive and dominant variance and covariance of individuals within the
@@ -68,12 +83,16 @@ setMethod("Gmatrix", "BreedingExperiment",
 #' @export
 setMethod("Dmatrix", "BreedingExperiment",
           function(x, min_maf = 0, impute = TRUE, ...) {
-    g <- .prepared_genotypes(x, min_maf = min_maf, impute = impute)
-    p <- rowMeans(g) / 2
+    ## missing calls are kept as NA here rather than filled with 2p, because
+    ## the dominance code of an unknown genotype is its expectation, zero,
+    ## not the code of the average dosage
+    g <- .prepared_genotypes(x, min_maf = min_maf, impute = impute,
+                             keep_na = TRUE)
+    p <- rowMeans(g, na.rm = TRUE) / 2
     q <- 1 - p
-    ## AA -> -2q^2 ; Aa -> 2pq ; aa -> -2p^2   (markers in rows)
-    H <- matrix(0, nrow(g), ncol(g), dimnames = dimnames(g))
-    H[] <- ifelse(g == 2, -2 * q^2, ifelse(g == 1, 2 * p * q, -2 * p^2))
+    ## the quadratic through the three Vitezica genotype codes; see Details
+    H <- -g^2 + (2 * p + 1) * g - 2 * p^2
+    H[is.na(H)] <- 0
     denom <- sum((2 * p * q)^2)
     if (denom <= 0) {
         stop("all markers are monomorphic; cannot build D.", call. = FALSE)
@@ -83,29 +102,58 @@ setMethod("Dmatrix", "BreedingExperiment",
     D
 })
 
+## Shared genotype preparation: drop markers nothing can be learned from,
+## deal with missing calls, then filter on frequency and variation.
+##
+## `keep_na = TRUE` leaves missing calls in place for callers that give them
+## their own weight; every frequency and variance below is computed with
+## `na.rm = TRUE` so that the filtering is the same either way.
 #' @keywords internal
 #' @noRd
-.prepared_genotypes <- function(x, min_maf = 0, impute = TRUE) {
-    g <- genotypes(x)
+.prepared_genotypes <- function(x, min_maf = 0, impute = TRUE,
+                                keep_na = FALSE) {
+    g <- .drop_uncalled(genotypes(x))
     if (anyNA(g)) {
         if (!impute) {
             stop("genotypes contain missing values; use impute = TRUE or ",
                  "see `imputeMarkers()`.", call. = FALSE)
         }
-        mu <- rowMeans(g, na.rm = TRUE)
-        idx <- which(is.na(g), arr.ind = TRUE)
-        if (nrow(idx)) g[idx] <- mu[idx[, "row"]]
+        if (!keep_na) {
+            mu <- rowMeans(g, na.rm = TRUE)
+            idx <- which(is.na(g), arr.ind = TRUE)
+            g[idx] <- mu[idx[, "row"]]
+        }
     }
+    keep <- rep(TRUE, nrow(g))
     if (min_maf > 0) {
-        p <- rowMeans(g) / 2
-        keep <- pmin(p, 1 - p) >= min_maf
-        g <- g[keep, , drop = FALSE]
+        p <- rowMeans(g, na.rm = TRUE) / 2
+        keep <- keep & pmin(p, 1 - p) >= min_maf
     }
     ## a marker with no variation contributes nothing and breaks the scaling
-    keep <- apply(g, 1L, function(v) stats::sd(v) > 0)
+    sds <- apply(g, 1L, stats::sd, na.rm = TRUE)
+    keep <- keep & !is.na(sds) & sds > 0
     g <- g[keep, , drop = FALSE]
     if (nrow(g) == 0L) {
         stop("no polymorphic markers left after filtering.", call. = FALSE)
+    }
+    g
+}
+
+## A marker with no calls at all has no allele frequency to impute from, and
+## carrying it further turns the relationship matrix into NaN without saying
+## why.
+#' @keywords internal
+#' @noRd
+.drop_uncalled <- function(g) {
+    uncalled <- rowSums(!is.na(g)) == 0L
+    if (any(uncalled)) {
+        warning(sum(uncalled), " marker(s) have no genotype calls at all ",
+                "and were dropped: ", .some(rownames(g)[uncalled]),
+                call. = FALSE)
+        g <- g[!uncalled, , drop = FALSE]
+    }
+    if (nrow(g) == 0L) {
+        stop("no marker has any genotype call.", call. = FALSE)
     }
     g
 }

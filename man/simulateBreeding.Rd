@@ -19,16 +19,17 @@ simulateBreeding(
 
 \item{n_marker}{Number of markers.}
 
-\item{n_founder}{Number of unrelated founders.}
+\item{n_founder}{Number of unrelated founders. Capped at \code{n_ind}; at least
+two are needed if there are to be any offspring.}
 
 \item{genotyped}{Number of individuals with genotypes, taken from the most
 recent ones. Defaults to all of them.}
 
 \item{n_qtl}{Number of markers with an effect on the trait.}
 
-\item{h2}{Narrow-sense heritability of the simulated trait.}
+\item{h2}{Narrow-sense heritability of the simulated trait, between 0 and 1.}
 
-\item{missing}{Proportion of genotype calls set to \code{NA}.}
+\item{missing}{Proportion of genotype calls set to \code{NA}, between 0 and 1.}
 }
 \value{
 A \link[=BreedingExperiment-class]{BreedingExperiment} object with a \code{phenotype} column and the
@@ -43,7 +44,18 @@ agree with each other.
 }
 \details{
 Set \code{genotyped} below \code{n_ind} to leave some individuals ungenotyped, which is
-the situation \code{\link[=Hmatrix]{Hmatrix()}} is designed for.
+the situation \code{\link[=Hmatrix]{Hmatrix()}} is designed for. The genotyped individuals are the
+most recent ones, so the ungenotyped are the earlier generations, as in a
+programme that began genotyping part way through.
+
+Note that \code{n_founder} defaults to 10 and is capped at \code{n_ind}, so a call
+such as \code{simulateBreeding(n_ind = 8)} returns eight unrelated founders and
+no pedigree structure at all. Ask for more individuals than founders to get
+relatives.
+
+The trait is scaled so that the genetic variance is \code{h2} and the residual
+variance is \code{1 - h2}, and \code{trueBV} in the column data is the genetic
+component on that scale.
 
 The function draws random numbers but does not set the seed itself. Call
 \code{\link[=set.seed]{set.seed()}} beforehand if you need the same population twice.
@@ -53,4 +65,12 @@ set.seed(1)
 be <- simulateBreeding(n_ind = 25, n_marker = 100)
 be
 head(as.data.frame(colData(be)))
+
+# a population where only the recent individuals were genotyped
+part <- simulateBreeding(n_ind = 30, n_marker = 100, n_founder = 6,
+                         genotyped = 20)
+c(pedigree = nrow(pedigree(part)), genotyped = ncol(part))
+}
+\seealso{
+\code{\link[=BreedingExperiment]{BreedingExperiment()}}, \code{\link[=Hmatrix]{Hmatrix()}}
 }

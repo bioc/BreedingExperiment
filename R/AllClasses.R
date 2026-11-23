@@ -97,3 +97,44 @@ setValidity("BreedingExperiment", function(object) {
   }
   if (length(msg)) msg else TRUE
 })
+
+## Name a few offending identifiers in a message without printing thousands.
+#' @keywords internal
+#' @noRd
+.some <- function(x, n = 5L) {
+    x <- as.character(x)
+    if (!length(x)) return("none")
+    if (length(x) > n) {
+        paste0(paste(utils::head(x, n), collapse = ", "),
+               ", ... (", length(x), " in total)")
+    } else {
+        paste(x, collapse = ", ")
+    }
+}
+
+## Name of the optional assay recording which dosages imputeMarkers() filled
+## in. Once a cell holds an expected dosage it can no longer be told apart
+## from a call by its value alone - a marker whose mean dosage is exactly 1
+## imputes to exactly 1 - so the distinction is kept explicitly.
+.IMPUTED <- "imputed"
+
+## The imputed-cell mask, or FALSE (which recycles) when the object carries
+## no such assay, as it will not if the dosages were imputed elsewhere.
+#' @keywords internal
+#' @noRd
+.imputed_mask <- function(x) {
+    if (!(.IMPUTED %in% SummarizedExperiment::assayNames(x))) return(FALSE)
+    m <- as.matrix(SummarizedExperiment::assay(x, .IMPUTED))
+    storage.mode(m) <- "logical"
+    m & !is.na(m)
+}
+
+## Imputing twice must mark the union of both sets of cells.
+#' @keywords internal
+#' @noRd
+.merge_imputed <- function(x, mask) {
+    old <- .imputed_mask(x)
+    mask <- mask | old
+    dimnames(mask) <- dimnames(SummarizedExperiment::assay(x, "genotype"))
+    mask
+}

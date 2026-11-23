@@ -102,6 +102,10 @@ pheno <- data.frame(
     trueBV_stature = round(bv2, 4),
     stringsAsFactors = FALSE)
 
+## name the rows after the individuals, so that the constructor matches
+## phenotypes to genotypes by identifier rather than trusting the order
+rownames(pheno) <- ids
+
 ## ---- who was genotyped -----------------------------------------------------
 keep <- which(!(gen %in% gen_ungeno))
 Gk <- G[, keep, drop = FALSE]

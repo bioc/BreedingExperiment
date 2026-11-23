@@ -50,6 +50,18 @@ The pedigree may name ancestors that were never genotyped. Those extra
 individuals are exactly what \code{\link[=Hmatrix]{Hmatrix()}} needs in order to combine pedigree
 and genomic information.
 }
+\section{How phenotypes are matched to individuals}{
+
+If \code{phenotypes} has row names, they are treated as individual identifiers:
+they must be the same set as the column names of \code{genotypes}, and the rows
+are reordered to match. If it has no row names, or only the automatic
+\verb{1, 2, 3, ...} of a freshly built data frame, the rows are taken in the
+order given. Row names that are neither absent nor matching are an error
+rather than something to be overwritten, because the one thing worse than
+refusing a phenotype table is silently attaching each phenotype to the
+wrong individual.
+}
+
 \examples{
 set.seed(1)
 geno <- matrix(rbinom(40 * 12, 2, 0.3), nrow = 40, ncol = 12,
@@ -58,6 +70,12 @@ pheno <- data.frame(yield = rnorm(12))
 be <- BreedingExperiment(geno, phenotypes = pheno)
 be
 dim(be)
+
+# phenotypes given in a different order are matched by row name
+shuffled <- data.frame(yield = rnorm(12),
+                       row.names = rev(colnames(geno)))
+identical(colnames(BreedingExperiment(geno, phenotypes = shuffled)),
+          colnames(geno))
 }
 \seealso{
 \code{\link[=Gmatrix]{Gmatrix()}}, \code{\link[=Amatrix]{Amatrix()}}, \code{\link[=Hmatrix]{Hmatrix()}}, \code{\link[=simulateBreeding]{simulateBreeding()}}

@@ -34,6 +34,18 @@ Removes markers that are uninformative or poorly genotyped: those below a
 minor allele frequency threshold, those called in too few individuals, and
 optionally those that are monomorphic.
 }
+\section{Choosing the thresholds}{
+
+\code{min_maf} and \code{min_call_rate} are judgement calls, not constants of nature.
+Common starting points are a minor allele frequency of 0.01 to 0.05 and a
+call rate of 0.90 to 0.95. Raise \code{min_maf} when the panel is large and the
+sample small, because a rare allele seen in one or two individuals carries
+almost no information about relationships but still adds noise; lower it
+when rare variants are the point of the study. Run this before
+\code{\link[=imputeMarkers]{imputeMarkers()}}, so that imputation is not asked to rescue markers that
+should simply be discarded.
+}
+
 \examples{
 set.seed(1)
 be <- simulateBreeding(n_ind = 30, n_marker = 100, missing = 0.05)

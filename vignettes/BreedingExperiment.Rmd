@@ -15,22 +15,104 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-```{r setup}
-library(BreedingExperiment)
-```
+# Why this package
 
 A quantitative-genetic analysis needs four things at once: the marker
 genotypes, the phenotypes, the pedigree, and where the markers sit on the
 genome. Keeping them in four separate objects is where mistakes creep in, as
-soon as one of them is filtered or reordered.
+soon as one of them is filtered or reordered. Drop a marker from the genotype
+matrix and the map no longer lines up; reorder the phenotypes and every
+breeding value is attached to the wrong animal. Nothing warns you.
 
-`BreedingExperiment` keeps them together. It extends
-`RangedSummarizedExperiment`, so markers are rows, individuals are columns, and
-the marker positions are a `GRanges`. Everything you already know about
-Bioconductor containers applies, and subsetting can never desynchronise the
-parts.
+Bioconductor solved that problem generally with `SummarizedExperiment`, and
+`BreedingExperiment` applies the solution to breeding data. It extends
+`RangedSummarizedExperiment`, so markers are rows, individuals are columns,
+and marker positions are a `GRanges`. Subsetting takes the genotypes, the
+phenotypes, the marker coordinates and the pedigree with it. Everything you
+already know about Bioconductor containers applies.
 
-## The demonstration data
+The relationship matrices are then methods on that container rather than
+free-standing functions fed loose matrices:
+
+* `Amatrix()`, the pedigree numerator relationship matrix;
+* `Gmatrix()`, the genomic relationship matrix;
+* `Dmatrix()`, the dominance relationship matrix;
+* `Hmatrix()`, the single-step matrix combining pedigree and markers.
+
+That last one is the reason the package exists. Real breeding programmes
+genotype only part of the population, and single-step genomic prediction is
+how the genotyped and ungenotyped parts are analysed together.
+
+# What else is available
+
+It is worth being specific about what this package adds, because the
+individual matrices are not new.
+
+On Bioconductor, relatedness is available from two directions, but never
+both at once:
+
+| Package | What it gives you |
+| --- | --- |
+| `r BiocStyle::Biocpkg("SNPRelate")` | `snpgdsGRM()`, a genomic relationship matrix from GDS-backed genotypes, and IBD and PCA analyses. Scales far past this package, with no pedigree. |
+| `r BiocStyle::Biocpkg("GENESIS")` | PC-AiR and PC-Relate, kinship estimated from markers while adjusting for ancestry, plus mixed-model association testing. |
+| `r BiocStyle::Biocpkg("GeneticsPed")` | Pedigree classes, relationship and inbreeding coefficients. Pedigree only; its own description notes that it is not stable. |
+| `r BiocStyle::Biocpkg("Pedixplorer")` | `Pedigree` objects, kinship matrices and pedigree drawing, succeeding `kinship2`. Pedigree only. |
+| `r BiocStyle::Biocpkg("FamAgg")` | Pedigree handling and tests of familial aggregation of traits. Pedigree only. |
+
+So Bioconductor can give you relationships from a pedigree, or relationships
+from markers, but not a container that holds both kinds of data together and
+not the single-step matrix that reconciles them.
+
+On CRAN, `AGHmatrix` is the closest relative and in some ways goes further
+than this package. It computes A, G, dominance and H matrices, it covers
+autopolyploids as well as diploids, it offers several parameterisations of
+each matrix, and it is compiled, so it is faster. What it does not do is hold
+your data: it takes loose matrices and data frames and returns loose
+matrices, leaving the genotypes, pedigree, phenotypes and map for you to keep
+aligned. The differences worth knowing are:
+
+* **Orientation.** `AGHmatrix::Gmatrix()` expects individuals in rows and
+  markers in columns. This package follows the Bioconductor convention and
+  puts markers in rows.
+* **Single-step.** `AGHmatrix::Hmatrix()` takes an already-computed A and G
+  and offers the Martini and Munoz methods. `Hmatrix()` here works from the
+  object, and uses the tuning and blending described below.
+* **Dominance.** `AGHmatrix` reaches dominance through
+  `Gmatrix(method = "Vitezica")`; here it is `Dmatrix()`.
+* **Names.** `AGHmatrix` also exports `Amatrix`, `Gmatrix` and `Hmatrix`, so
+  loading both packages masks whichever was loaded first. Use
+  `BreedingExperiment::Gmatrix()` if you need both in one session.
+
+Choose `AGHmatrix` if you work on autopolyploids or want its alternative
+parameterisations; choose `SNPRelate` if you have hundreds of thousands of
+samples and no pedigree; choose this package if your data belong in a
+Bioconductor container and you want the single-step matrix.
+
+Two limitations are worth stating plainly. The relationship matrices are
+dense base-R matrices, which suits thousands of individuals rather than
+hundreds of thousands. And the package estimates no variance components and
+fits no association tests: it produces the relationship structures, and a
+solver consumes them, as shown at the end of this vignette.
+
+# Installation
+
+```{r install, eval = FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("BreedingExperiment")
+```
+
+The development version lives on GitHub:
+
+```{r install-dev, eval = FALSE}
+BiocManager::install("mqfarooqi1/BreedingExperiment")
+```
+
+```{r setup, message = FALSE}
+library(BreedingExperiment)
+```
+
+# The demonstration data
 
 The package ships with `demoBreeding`, a simulated five-generation population
 built to behave like a real programme rather than a textbook example.
@@ -46,7 +128,7 @@ Read the last line carefully: the pedigree describes **180 individuals but only
 began. That is the normal situation in a breeding programme, and it is the
 reason `Hmatrix()` exists.
 
-The data also carry the other awkward features of real records — a trait
+The data also carry the other awkward features of real records: a trait
 measured on one sex only, a little missing genotype data, and unequal family
 sizes because a few sires were used heavily.
 
@@ -75,28 +157,82 @@ chr1 <- be[as.character(GenomicRanges::seqnames(
 dim(chr1)
 ```
 
+# Building an object from your own data
+
 Your own data goes in the same way:
 
-```{r your-data , eval = FALSE}
+```{r your-data, eval = FALSE}
 be <- BreedingExperiment(
   genotypes  = dosage_matrix,          # markers x individuals, 0/1/2
   phenotypes = phenotype_data_frame,   # one row per individual
   pedigree   = pedigree_data_frame,    # id, sire, dam
   rowRanges  = marker_granges)         # optional, but worth having
-)
 ```
 
-## Quality control
+Two habits are worth forming. Give `phenotypes` row names that are the
+individual identifiers, and they will be matched by name rather than by
+position; row names that do not match the genotype column names are an error
+rather than something quietly overwritten. And pass real `rowRanges`
+whenever you have them, because that is what makes a data set subsettable by
+genomic region.
+
+The pedigree may name ancestors that were never genotyped, which is exactly
+what `Hmatrix()` needs. Parents that never appear in the `id` column are
+added as founders, and unknown parents may be written `NA` or `0`.
+
+# Quality control
+
+```{r qc-summaries}
+nrow(be)
+summary(alleleFrequency(be)$callRate)
+```
+
+Take the marker summaries before imputing. `callRate` counts dosages that are
+present, so after imputation it is 1 everywhere; observed `heterozygosity`,
+by contrast, ignores imputed cells and is unaffected.
 
 ```{r qc}
-nrow(be)
 be <- filterMarkers(be, min_maf = 0.05, min_call_rate = 0.9)
 be <- imputeMarkers(be)
 nrow(be)
 head(alleleFrequency(be), 3)
 ```
 
-## Relationships from the pedigree
+## Choosing the thresholds
+
+`min_maf` and `min_call_rate` are judgement calls, not constants of nature.
+Common starting points are a minor allele frequency between 0.01 and 0.05 and
+a call rate between 0.90 and 0.95. Raise `min_maf` when the panel is large
+and the sample small, because an allele seen in one or two individuals says
+almost nothing about relationships while still adding noise; lower it when
+rare variants are the point of the study. Filter before imputing, so that
+imputation is not asked to rescue markers that should simply be discarded.
+
+How much this matters is worth checking rather than assuming:
+
+```{r qc-sensitivity}
+# on the unfiltered data, so that every threshold has markers to remove
+round(t(vapply(c(0, 0.01, 0.05, 0.20), function(m) {
+  G <- Gmatrix(demoBreeding, min_maf = m)
+  c(min_maf = m, mean_diagonal = mean(diag(G)),
+    sd_offdiagonal = stats::sd(G[upper.tri(G)]))
+}, numeric(3))), 3)
+```
+
+`imputeMarkers()` fills missing dosages with twice the allele frequency and
+records which cells it filled in an `imputed` assay, carried through
+subsetting with everything else:
+
+```{r imputed-assay}
+SummarizedExperiment::assayNames(be)
+mean(SummarizedExperiment::assay(be, "imputed"))   # proportion imputed
+```
+
+That is adequate for the low missingness left after filtering. For anything
+more, impute with dedicated software and pass the expected dosages in
+directly; the container accepts values between 0 and 2.
+
+# Relationships from the pedigree
 
 `Amatrix()` builds the numerator relationship matrix. Its entries are the
 familiar textbook values: one half between parent and offspring, one quarter
@@ -113,7 +249,7 @@ The diagonal carries inbreeding:
 summary(inbreeding(be))
 ```
 
-## Relationships from the markers
+# Relationships from the markers
 
 `Gmatrix()` is the genomic relationship matrix. It measures what actually
 happened rather than what was expected: two full sibs have a pedigree
@@ -133,13 +269,26 @@ A22 <- A[gen, gen]
 cor(A22[upper.tri(A22)], G[upper.tri(G)])
 ```
 
-`Dmatrix()` gives the dominance relationships, orthogonal to the additive ones,
-for models that separate the two.
+```{r ag-plot, fig.wide = TRUE, fig.height = 4, fig.cap = "Pedigree and genomic relationships for the same pairs of individuals. The pedigree gives a few discrete values; the markers spread each of them out, and that spread is the Mendelian sampling a pedigree cannot see."}
+plot(A22[upper.tri(A22)], G[upper.tri(G)], pch = 16, cex = 0.3,
+     col = grDevices::adjustcolor("steelblue", alpha.f = 0.3),
+     xlab = "pedigree relationship", ylab = "genomic relationship")
+abline(0, 1, col = "firebrick", lwd = 2)
+```
 
-## Combining both: the single-step matrix
+`Dmatrix()` gives the dominance relationships, orthogonal to the additive
+ones, for models that separate the two:
 
-Using only `G` discards every ungenotyped relative. Using only `A` discards the
-markers. `Hmatrix()` keeps both, and covers every individual in the pedigree:
+```{r dmatrix}
+D <- Dmatrix(be)
+round(D[1:4, 1:4], 3)
+```
+
+# Combining both: the single-step matrix
+
+Using only `G` discards every ungenotyped relative. Using only `A` discards
+the markers. `Hmatrix()` keeps both, and covers every individual in the
+pedigree:
 
 ```{r hmatrix}
 H <- Hmatrix(be, blend = 0.05)
@@ -159,10 +308,119 @@ max(abs(H1[gen, gen] - A22))
 min(eigen(H, only.values = TRUE)$values) > 0
 ```
 
-`H` is the relationship structure used by single-step genomic prediction. Pass
-it, or its inverse, to whichever mixed-model solver you prefer.
+## Choosing blend and tune
 
-## Session information
+Leave `tune = TRUE` unless you have already put `G` on the scale of `A22`
+yourself. Untuned, the two matrices usually disagree about the average level
+of relationship, and that disagreement is passed straight into the
+ungenotyped block, where it appears as breeding values biased between the
+genotyped and ungenotyped groups.
+
+`blend` has two jobs. A small weight on `A22` makes the genotyped block
+invertible, which matters whenever there are fewer markers than genotyped
+individuals, and it pulls the markers back towards the pedigree where the
+marker estimate is noisy. Values between 0.01 and 0.10 are usual and 0.05 is
+a reasonable default: use 0.05 to 0.10 for a small marker panel and 0.01 to
+0.02 for a dense one on many individuals. `blend = 0` keeps `G` as it is and
+will fail if `G` is singular; `blend = 1` discards the markers altogether.
+
+With 801 markers on 120 individuals the choice makes very little difference
+here, which is itself the point: blending matters most when `G` is close to
+singular.
+
+```{r blend-sweep}
+vapply(c(0.02, 0.05, 0.20), function(b) {
+  Hb <- Hmatrix(be, blend = b)
+  min(eigen(Hb, only.values = TRUE)$values)
+}, numeric(1))
+```
+
+# A complete example: single-step BLUP
+
+The matrices are not the end of an analysis, so here is what you do with one.
+These are Henderson's mixed model equations for a single random genetic
+effect,
+$$y = Xb + Zu + e, \qquad u \sim N(0, K\sigma^2_u), \qquad
+  e \sim N(0, I\sigma^2_e),$$
+solved directly with $\lambda = \sigma^2_e / \sigma^2_u$:
+$$\begin{bmatrix} X'X & X'Z \\ Z'X & Z'Z + K^{-1}\lambda \end{bmatrix}
+  \begin{bmatrix} b \\ u \end{bmatrix} =
+  \begin{bmatrix} X'y \\ Z'y \end{bmatrix}.$$
+
+Put `H` in for $K$ and the solution covers every individual in the pedigree,
+genotyped or not. The validation is the one a breeder actually cares about:
+hide the records of the youngest generation, predict their breeding values
+from their parents and their markers, and see how well the predictions
+correlate with the truth that the simulation knows.
+
+```{r blup-setup}
+ph  <- SummarizedExperiment::colData(be)
+ids <- rownames(H)
+
+train  <- ph$generation != 5                 # records we are allowed to use
+target <- colnames(be)[ph$generation == 5]   # the ones we must predict
+y <- ph$stature[train]
+
+X <- matrix(1, length(y), 1)                 # an intercept only
+Z <- matrix(0, length(y), length(ids))       # records to individuals
+Z[cbind(seq_along(y), match(colnames(be)[train], ids))] <- 1
+c(records = length(y), predicted = length(target))
+```
+
+```{r blup-solve}
+blup <- function(K, h2) {
+  lambda <- (1 - h2) / h2
+  lhs <- rbind(cbind(crossprod(X),    crossprod(X, Z)),
+               cbind(crossprod(Z, X), crossprod(Z) + solve(K) * lambda))
+  rhs <- rbind(crossprod(X, y), crossprod(Z, y))
+  stats::setNames(solve(lhs, rhs)[-1, 1], ids)
+}
+
+ebv_pedigree   <- blup(A[ids, ids], h2 = 0.6)
+ebv_singlestep <- blup(H,           h2 = 0.6)
+```
+
+`stature` was simulated with a heritability of 0.6, which is the value used
+here. In a real analysis the variance components are estimated, by REML in a
+package such as `sommer`, `rrBLUP`, `BGLR` or `lme4qtl`, or by standalone
+software such as ASReml or BLUPF90; all of them accept a relationship matrix
+or its inverse, which is what this package produces.
+
+```{r blup-accuracy}
+true <- stats::setNames(ph$trueBV_stature, colnames(be))
+round(c(pedigree   = cor(ebv_pedigree[target],   true[target]),
+        singlestep = cor(ebv_singlestep[target], true[target])), 3)
+```
+
+Adding the markers raises the correlation with the true breeding values of
+the unrecorded generation. The gain is real but modest, and that is honest
+for this data set: the simulated pedigree is complete and error-free, which
+is the situation in which a pedigree-only analysis does best. The advantage
+of single-step grows as pedigrees become incomplete and as more records
+accumulate on ungenotyped relatives.
+
+```{r blup-plot, fig.wide = TRUE, fig.height = 4.2, fig.cap = "Predicted against true breeding values for the youngest generation, whose records were withheld. Adding marker information tightens the relationship."}
+op <- par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+for (nm in c("pedigree", "singlestep")) {
+  e <- if (nm == "pedigree") ebv_pedigree else ebv_singlestep
+  plot(true[target], e[target], pch = 16, col = "steelblue",
+       xlab = "true breeding value", ylab = "predicted",
+       main = sprintf("%s (r = %.3f)", nm, cor(e[target], true[target])))
+  abline(lm(e[target] ~ true[target]), col = "firebrick", lwd = 2)
+}
+par(op)
+```
+
+The other half of what `H` buys you is easy to miss: the 60 ungenotyped
+ancestors get predictions too, on the same scale, from one solve.
+
+```{r blup-ungenotyped}
+ungenotyped <- setdiff(ids, attr(H, "genotyped"))
+length(ungenotyped)
+summary(ebv_singlestep[ungenotyped])
+```
+
+# Session information
 
 ```{r session}
 sessionInfo()

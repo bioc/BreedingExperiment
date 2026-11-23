@@ -28,6 +28,23 @@
 #' \eqn{G^{*} = (1-w)G + wA_{22}}, which also makes the result invertible when
 #' markers are fewer than individuals.
 #'
+#' @section Choosing blend and tune:
+#' Leave `tune = TRUE` unless you have already put \eqn{G} on the scale of
+#' \eqn{A_{22}} yourself. Untuned, the two matrices usually disagree about the
+#' average level of relationship, and that disagreement is passed straight
+#' into the ungenotyped block, where it shows up as breeding values that are
+#' biased between the genotyped and ungenotyped groups.
+#'
+#' `blend` has two jobs. A small weight on \eqn{A_{22}} makes \eqn{G^{*}}
+#' invertible, which matters whenever there are fewer markers than genotyped
+#' individuals, and it pulls the markers back towards the pedigree where the
+#' marker estimate is noisy. Values between 0.01 and 0.10 are usual and 0.05
+#' is a reasonable default; 0.05 to 0.10 suits a small marker panel, and 0.01
+#' to 0.02 a dense one on many individuals. `blend = 0` keeps \eqn{G} as it is
+#' and will fail if \eqn{G} is singular. `blend = 1` discards the markers
+#' altogether and returns the pedigree matrix, which is useful only as the
+#' check shown in the examples.
+#'
 #' @param x A [BreedingExperiment-class] object with both a pedigree and
 #'   genotypes.
 #' @param blend Weight \eqn{w} given to \eqn{A_{22}} when blending, between 0
@@ -37,7 +54,9 @@
 #' @param ... Unused.
 #' @return A symmetric numeric matrix over every individual in the pedigree,
 #'   ungenotyped individuals first, with an attribute `genotyped` giving the
-#'   identifiers of the genotyped group.
+#'   identifiers of the genotyped group. Genotyped individuals that are absent
+#'   from the pedigree cannot be placed in \eqn{H} and are dropped with a
+#'   warning.
 #' @references
 #' Legarra, A., Aguilar, I. & Misztal, I. (2009) "A relationship matrix
 #' including full pedigree and genomic information." Journal of Dairy Science
@@ -77,6 +96,12 @@ setMethod("Hmatrix", "BreedingExperiment",
     gen <- intersect(rownames(A), colnames(x))
     if (!length(gen)) {
         stop("no genotyped individual appears in the pedigree.", call. = FALSE)
+    }
+    absent <- setdiff(colnames(x), rownames(A))
+    if (length(absent)) {
+        warning(length(absent), " genotyped individual(s) do not appear in ",
+                "the pedigree, so they are left out of H: ", .some(absent),
+                call. = FALSE)
     }
     ung <- setdiff(rownames(A), gen)
 

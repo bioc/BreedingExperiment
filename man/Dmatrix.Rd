@@ -16,8 +16,8 @@ Dmatrix(x, ...)
 
 \item{min_maf}{Markers with a minor allele frequency below this are dropped.}
 
-\item{impute}{Replace missing dosages by twice the allele frequency before
-computing. If \code{FALSE}, missing values raise an error.}
+\item{impute}{Allow missing dosages, giving them a dominance contribution
+of zero. If \code{FALSE}, missing values raise an error.}
 }
 \value{
 A symmetric numeric matrix over the genotyped individuals.
@@ -35,6 +35,20 @@ part of the genetic variance that is inherited predictably from the part
 that is not, which matters for crossbreeding and for predicting the
 performance of specific crosses.
 }
+\section{Dosages that are not whole numbers}{
+
+Vitezica and others code the genotypes AA, Aa and aa as \eqn{-2q^2},
+\eqn{2pq} and \eqn{-2p^2}. Those three values lie on a single quadratic in
+the dosage \eqn{g},
+\deqn{-g^2 + (2p + 1)g - 2p^2,}
+which is what this function evaluates. At dosages 2, 1 and 0 it returns the
+three published values exactly, and an expected dosage from imputation
+falls between them rather than being forced into one genotype class.
+
+A missing call is given a dominance contribution of zero, which is the
+weight that mean imputation already gives it in \code{\link[=Gmatrix]{Gmatrix()}}.
+}
+
 \examples{
 set.seed(1)
 be <- simulateBreeding(n_ind = 20, n_marker = 200)

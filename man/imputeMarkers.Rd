@@ -7,21 +7,43 @@
 \usage{
 imputeMarkers(x, ...)
 
-\S4method{imputeMarkers}{BreedingExperiment}(x, ...)
+\S4method{imputeMarkers}{BreedingExperiment}(x, drop_uncalled = TRUE, ...)
 }
 \arguments{
 \item{x}{A \link[=BreedingExperiment-class]{BreedingExperiment} object.}
 
 \item{...}{Unused.}
+
+\item{drop_uncalled}{Drop markers with no genotype calls at all, with a
+warning. If \code{FALSE}, their presence is an error.}
 }
 \value{
-A \link[=BreedingExperiment-class]{BreedingExperiment} object with no missing genotypes.
+A \link[=BreedingExperiment-class]{BreedingExperiment} object with no missing genotypes and
+an \code{imputed} assay marking the cells that were filled in.
 }
 \description{
 Fills missing dosages with twice the allele frequency of the marker, the
 simple mean imputation that relationship matrices assume. It is adequate for
 the low rates of missingness left after quality control; for anything more,
 impute with dedicated software before building the object.
+}
+\details{
+Mean imputation leaves an expected dosage rather than a whole number of
+copies, which the container accepts. Note what that costs: an imputed cell
+is no longer a genotype call, and its value alone no longer says so, since
+a marker whose mean dosage is exactly 1 imputes to exactly 1. The cells
+that were filled in are therefore recorded in a logical assay named
+\code{imputed}, reachable with \code{assay(x, "imputed")} and carried through
+subsetting with everything else. \code{\link[=alleleFrequency]{alleleFrequency()}} consults it, so
+observed heterozygosity is unchanged by imputing. \code{callRate}, on the other
+hand, counts dosages that are present and so becomes 1 for every marker;
+record call rates before imputing if you need them.
+
+A marker with no calls at all has no frequency to impute from. Such markers
+are dropped with a warning rather than being filled in, because filling
+them would invent a genotype for every individual at that marker.
+\code{\link[=filterMarkers]{filterMarkers()}} removes them too, and running it first is the better
+habit.
 }
 \examples{
 set.seed(1)
@@ -30,5 +52,5 @@ anyNA(genotypes(be))
 anyNA(genotypes(imputeMarkers(be)))
 }
 \seealso{
-\code{\link[=filterMarkers]{filterMarkers()}}
+\code{\link[=filterMarkers]{filterMarkers()}}, \code{\link[=alleleFrequency]{alleleFrequency()}}
 }

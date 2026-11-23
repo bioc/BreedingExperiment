@@ -17,6 +17,16 @@
 #' individuals are exactly what [Hmatrix()] needs in order to combine pedigree
 #' and genomic information.
 #'
+#' @section How phenotypes are matched to individuals:
+#' If `phenotypes` has row names, they are treated as individual identifiers:
+#' they must be the same set as the column names of `genotypes`, and the rows
+#' are reordered to match. If it has no row names, or only the automatic
+#' `1, 2, 3, ...` of a freshly built data frame, the rows are taken in the
+#' order given. Row names that are neither absent nor matching are an error
+#' rather than something to be overwritten, because the one thing worse than
+#' refusing a phenotype table is silently attaching each phenotype to the
+#' wrong individual.
+#'
 #' @param genotypes A numeric matrix of allele dosages, markers in rows and
 #'   individuals in columns, with column names identifying the individuals.
 #' @param phenotypes Optional data frame or [S4Vectors::DataFrame] of
@@ -37,6 +47,12 @@
 #' be <- BreedingExperiment(geno, phenotypes = pheno)
 #' be
 #' dim(be)
+#'
+#' # phenotypes given in a different order are matched by row name
+#' shuffled <- data.frame(yield = rnorm(12),
+#'                        row.names = rev(colnames(geno)))
+#' identical(colnames(BreedingExperiment(geno, phenotypes = shuffled)),
+#'           colnames(geno))
 #' @export
 BreedingExperiment <- function(genotypes, phenotypes = NULL, pedigree = NULL,
                                rowRanges = NULL, ...) {
@@ -50,6 +66,10 @@ BreedingExperiment <- function(genotypes, phenotypes = NULL, pedigree = NULL,
     if (is.null(rownames(genotypes))) {
         rownames(genotypes) <- paste0("marker", seq_len(n_marker))
     }
+    if (anyDuplicated(colnames(genotypes)) > 0L) {
+        stop("`genotypes` has duplicated column names, so individuals ",
+             "cannot be told apart.", call. = FALSE)
+    }
 
     cd <- if (is.null(phenotypes)) {
         S4Vectors::DataFrame(row.names = colnames(genotypes))
@@ -59,8 +79,7 @@ BreedingExperiment <- function(genotypes, phenotypes = NULL, pedigree = NULL,
             stop("`phenotypes` must have one row per individual (",
                  n_ind, ").", call. = FALSE)
         }
-        rownames(pd) <- colnames(genotypes)
-        pd
+        .align_phenotypes(phenotypes, pd, colnames(genotypes))
     }
 
     rr <- if (is.null(rowRanges)) {
@@ -82,6 +101,33 @@ BreedingExperiment <- function(genotypes, phenotypes = NULL, pedigree = NULL,
 
     ped <- .clean_pedigree(pedigree, colnames(genotypes))
     methods::new("BreedingExperiment", se, pedigree = ped)
+}
+
+## Match phenotype rows to individuals by name where there are names to match
+## on, and by position only where there are not. See the constructor's
+## documentation for why a mismatch is an error.
+#' @keywords internal
+#' @noRd
+.align_phenotypes <- function(raw, pd, ids) {
+    rn <- rownames(raw)
+    ## a data frame built without row.names reports "1", "2", ... which say
+    ## nothing about which individual a row describes; .row_names_info()
+    ## returns a negative count for exactly that case
+    automatic <- is.data.frame(raw) && .row_names_info(raw) < 0L
+    if (automatic || is.null(rn)) {
+        rownames(pd) <- ids
+        return(pd)
+    }
+    if (setequal(rn, ids)) {
+        pd <- pd[match(ids, rn), , drop = FALSE]
+        rownames(pd) <- ids
+        return(pd)
+    }
+    stop("the row names of `phenotypes` do not identify the individuals in ",
+         "`genotypes`. Either give `phenotypes` row names matching the ",
+         "genotype column names, or remove them to match by position. ",
+         "Not matched: ",
+         .some(c(setdiff(ids, rn), setdiff(rn, ids))), ".", call. = FALSE)
 }
 
 #' @keywords internal
@@ -118,6 +164,10 @@ BreedingExperiment <- function(genotypes, phenotypes = NULL, pedigree = NULL,
     ## treat "0" and "" as unknown, the convention in pedigree files
     p$sire[p$sire %in% c("0", "")] <- NA_character_
     p$dam[p$dam %in% c("0", "")] <- NA_character_
+    if (anyNA(p$id)) {
+        stop("`pedigree` has rows with a missing id.", call. = FALSE)
+    }
+    p <- .resolve_duplicate_ids(p)
 
     ## parents that never appear as an id are added as founders, so the
     ## pedigree is self-contained and can be sorted
@@ -127,6 +177,26 @@ BreedingExperiment <- function(genotypes, phenotypes = NULL, pedigree = NULL,
         p <- rbind(data.frame(id = parents, sire = NA_character_,
                               dam = NA_character_, stringsAsFactors = FALSE), p)
     }
-    p <- p[!duplicated(p$id), , drop = FALSE]
     S4Vectors::DataFrame(p)
+}
+
+## Repeating a pedigree row changes nothing and is worth no more than a
+## warning. Two rows that give the same individual different parents are a
+## data error, and keeping whichever happened to come first would hide it.
+#' @keywords internal
+#' @noRd
+.resolve_duplicate_ids <- function(p) {
+    dup <- unique(p$id[duplicated(p$id)])
+    if (!length(dup)) return(p)
+    conflicting <- vapply(dup, function(i) {
+        nrow(unique(p[p$id == i, , drop = FALSE])) > 1L
+    }, logical(1))
+    if (any(conflicting)) {
+        stop("`pedigree` gives different parents for the same id: ",
+             .some(dup[conflicting]), ".", call. = FALSE)
+    }
+    warning(length(dup), " pedigree id(s) appeared more than once with the ",
+            "same parents; the repeats were removed: ", .some(dup),
+            call. = FALSE)
+    p[!duplicated(p$id), , drop = FALSE]
 }

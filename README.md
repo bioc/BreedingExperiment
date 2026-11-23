@@ -149,6 +149,15 @@ definite, and `Hmatrix(blend = 1)` reproducing `A22` exactly.
   after quality control. Impute properly upstream for anything more.
 * **Diploid, biallelic markers only.**
 
+## AI assistance
+
+The code, documentation, tests and vignette were written with assistance from
+Anthropic's Claude (principally Claude Opus 5, via Claude Code) during initial
+development, directed and reviewed by the author, who is responsible for the
+correctness and maintenance of all of it. The methods themselves are
+established published ones, implemented from their original descriptions and
+cited above. No code is copied from another project. Full statement:
+[`inst/AI_STATEMENT.md`](inst/AI_STATEMENT.md).
 ## References
 
 * Henderson, C. R. (1976) *Biometrics* **32**, 69–83. [doi:10.2307/2529339](https://doi.org/10.2307/2529339)

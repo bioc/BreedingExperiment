@@ -4,3 +4,4 @@
 *.Rcheck/
 *.BiocCheck/
 docs/
+.review-reply*
